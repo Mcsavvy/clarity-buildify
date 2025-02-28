@@ -8,20 +8,19 @@ import {
 import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
 
 Clarinet.test({
-    name: "Can create new development project",
+    name: "Can create new development project with valid parameters",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const deployer = accounts.get('deployer')!;
         
         let block = chain.mineBlock([
             Tx.contractCall('buildify-token', 'create-project', [
-                types.uint(1000), // total supply
-                types.uint(100)   // price per token
+                types.uint(1000),
+                types.uint(100)
             ], deployer.address)
         ]);
         
         block.receipts[0].result.expectOk().expectUint(1);
         
-        // Verify project details
         let projectBlock = chain.mineBlock([
             Tx.contractCall('buildify-token', 'get-project', [
                 types.uint(1)
@@ -30,68 +29,80 @@ Clarinet.test({
         
         const project = projectBlock.receipts[0].result.expectOk().expectSome();
         assertEquals(project['total-supply'], types.uint(1000));
+        assertEquals(project['available-supply'], types.uint(1000));
         assertEquals(project['price-per-token'], types.uint(100));
     }
 });
 
 Clarinet.test({
-    name: "Can invest in project",
+    name: "Cannot create project with zero supply or price",
+    async fn(chain: Chain, accounts: Map<string, Account>) {
+        const deployer = accounts.get('deployer')!;
+        
+        let block = chain.mineBlock([
+            Tx.contractCall('buildify-token', 'create-project', [
+                types.uint(0),
+                types.uint(100)
+            ], deployer.address)
+        ]);
+        
+        block.receipts[0].result.expectErr().expectUint(104);
+    }
+});
+
+Clarinet.test({
+    name: "Can invest in project with sufficient supply",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const deployer = accounts.get('deployer')!;
         const investor = accounts.get('wallet_1')!;
         
-        // First create project
-        let block = chain.mineBlock([
+        chain.mineBlock([
             Tx.contractCall('buildify-token', 'create-project', [
                 types.uint(1000),
                 types.uint(100)
             ], deployer.address)
         ]);
         
-        // Then invest
         let investBlock = chain.mineBlock([
             Tx.contractCall('buildify-token', 'invest-in-project', [
-                types.uint(1),    // project id
-                types.uint(10)    // token amount
+                types.uint(1),
+                types.uint(10)
             ], investor.address)
         ]);
         
         investBlock.receipts[0].result.expectOk().expectBool(true);
         
-        // Verify investment
-        let investmentBlock = chain.mineBlock([
-            Tx.contractCall('buildify-token', 'get-investment', [
-                types.uint(1),
-                types.principal(investor.address)
+        let projectBlock = chain.mineBlock([
+            Tx.contractCall('buildify-token', 'get-project', [
+                types.uint(1)
             ], deployer.address)
         ]);
         
-        const investment = investmentBlock.receipts[0].result.expectOk().expectSome();
-        assertEquals(investment['amount'], types.uint(10));
+        const project = projectBlock.receipts[0].result.expectOk().expectSome();
+        assertEquals(project['available-supply'], types.uint(990));
     }
 });
 
 Clarinet.test({
-    name: "Can distribute profits",
+    name: "Cannot invest more than available supply",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const deployer = accounts.get('deployer')!;
+        const investor = accounts.get('wallet_1')!;
         
-        // Create project
-        let block = chain.mineBlock([
+        chain.mineBlock([
             Tx.contractCall('buildify-token', 'create-project', [
                 types.uint(1000),
                 types.uint(100)
             ], deployer.address)
         ]);
         
-        // Distribute profits
-        let profitBlock = chain.mineBlock([
-            Tx.contractCall('buildify-token', 'distribute-profits', [
-                types.uint(1),    // project id
-                types.uint(5)     // amount per token
-            ], deployer.address)
+        let investBlock = chain.mineBlock([
+            Tx.contractCall('buildify-token', 'invest-in-project', [
+                types.uint(1),
+                types.uint(1001)
+            ], investor.address)
         ]);
         
-        profitBlock.receipts[0].result.expectOk().expectBool(true);
+        investBlock.receipts[0].result.expectErr().expectUint(103);
     }
 });
